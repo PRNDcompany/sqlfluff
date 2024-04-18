@@ -201,7 +201,6 @@ bigquery_dialect.add(
     ),
 )
 
-
 bigquery_dialect.replace(
     # Override to allow _01 type identifiers which are valid in BigQuery
     # The strange regex here it to make sure we don't accidentally match numeric
@@ -256,7 +255,6 @@ bigquery_dialect.replace(
     BracketedSetExpressionGrammar=Bracketed(Ref("SetExpressionSegment")),
 )
 
-
 # Set Keywords
 bigquery_dialect.sets("unreserved_keywords").clear()
 bigquery_dialect.update_keywords_set_from_multiline_string(
@@ -307,7 +305,6 @@ bigquery_dialect.sets("date_part_function_name").update(
         "TIMESTAMP_TRUNC",
     ]
 )
-
 
 # In BigQuery, UNNEST() returns a "value table".
 # https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#value_tables
@@ -446,6 +443,7 @@ class StatementSegment(ansi.StatementSegment):
             Ref("CreateMaterializedViewStatementSegment"),
             Ref("AlterMaterializedViewStatementSegment"),
             Ref("DropMaterializedViewStatementSegment"),
+            Ref("CreateTableFunctionStatementSegment"),
         ],
     )
 
@@ -1285,7 +1283,7 @@ class ColumnReferenceSegment(ansi.ObjectReferenceSegment):
         max_level = max(levels_tmp)
         refs = list(self.iter_raw_references())
         if max_level == self.ObjectReferenceLevel.SCHEMA.value and len(refs) >= 3:
-            return [tuple(refs[0 : max_level - min_level + 1])]
+            return [tuple(refs[0: max_level - min_level + 1])]
         # Note we aren't handling other possible cases. We'll add these as
         # needed.
         return super().extract_possible_multipart_references(levels)
@@ -1806,6 +1804,55 @@ class DropMaterializedViewStatementSegment(BaseSegment):
         "VIEW",
         Ref("IfExistsGrammar", optional=True),
         Ref("TableReferenceSegment"),
+    )
+
+
+class CreateTableFunctionStatementSegment(BaseSegment):
+    """A 'CREATE TABLE FUNCTION' statement.
+
+    https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_function_statement
+    """
+
+    type = "create_table_function_statement"
+
+    match_grammar = Sequence(
+        "CREATE",
+        Ref("OrReplaceGrammar", optional=True),
+        "TABLE",
+        "FUNCTION",
+        Ref("IfNotExistsGrammar", optional=True),
+        Ref("FunctionNameSegment"),
+        # Column list for input parameters
+        Sequence(
+            Bracketed(
+                Delimited(
+                    Ref("ColumnDefinitionSegment"),
+                    allow_trailing=True,
+                    optional=True,
+                )
+            ),
+            optional=True,
+        ),
+        # Column list for the schema of the table that the function returns
+        Sequence(
+            "RETURNS",
+            "TABLE",
+            Bracketed(
+                Delimited(  # Comma-separated list of field names/types
+                    Sequence(
+                        Ref("ParameterNameSegment"),
+                        Ref("DatatypeSegment"),
+                    ),
+                ),
+                bracket_type="angle",
+                bracket_pairs_set="angle_bracket_pairs",
+            ),
+            optional=True,
+        ),
+        Sequence(
+            "AS",
+            OptionallyBracketed(Ref("SelectableGrammar")),
+        ),
     )
 
 
